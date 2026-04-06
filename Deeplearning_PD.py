@@ -1,0 +1,331 @@
+"""
+parkinsons_xgboost.py
+=======================
+Parkinson's Disease Detection using Deep Feature Extraction & XGBoost
+
+Models   : ResNet50 + VGG19 + InceptionV3 (Feature Extraction)
+Enhance  : Average + Laplacian Filters (Al-Jabbar et al.)
+Optimize : Genetic Algorithm for Feature Selection
+Classify : XGBoost 
+"""
+
+import os
+import cv2
+import random
+import numpy as np
+import warnings
+import joblib
+
+# Suppress TensorFlow logging spam in VS Code terminal
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+warnings.filterwarnings("ignore")
+
+from tensorflow.keras.applications import ResNet50, VGG19, InceptionV3
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import GlobalAveragePooling2D
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, recall_score, precision_score, roc_auc_score
+from xgboost import XGBClassifier
+
+# =============================================================================
+# LOCAL CONFIGURATION
+# =============================================================================
+IMAGE_SIZE = (256, 256)
+
+# Update this path if your downloaded dataset folder is named differently
+DATA_DIR = './dataset' 
+SAVE_DIR = './preprocessed_images' 
+
+# Genetic Algorithm Config
+POPULATION_SIZE = 20
+MAX_ITERATIONS = 50 # Lowered slightly so your local machine doesn't hang forever
+CROSSOVER_RATE = 0.7
+MUTATION_RATE = 0.3
+
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+
+# =============================================================================
+# 1. IMAGE PREPROCESSING & ENHANCEMENT
+# =============================================================================
+def preprocess_images():
+    count = 0
+    for category in ['SpiralControl', 'SpiralPatients']:
+        category_dir = os.path.join(DATA_DIR, category)
+        
+        if not os.path.exists(category_dir):
+            print(f"  [!] Directory not found: {category_dir}")
+            print("      Please ensure your dataset is extracted to the correct folder.")
+            return False
+
+        if os.path.isdir(category_dir):
+            for image_file in os.listdir(category_dir):
+                image_path = os.path.join(category_dir, image_file)
+                image = cv2.imread(image_path)
+                
+                if image is not None:
+                    # Resize
+                    image = cv2.resize(image, IMAGE_SIZE)
+                    
+                    # Al-Jabbar Enhancement
+                    image = cv2.blur(image, (5, 5)) 
+                    laplacian = cv2.Laplacian(image, cv2.CV_64F)
+                    image = cv2.convertScaleAbs(image - 0.5 * laplacian) 
+                    
+                    # Normalize
+                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                    image = image / 255.0
+
+                    # Save preprocessed image
+                    save_path = os.path.join(SAVE_DIR, category, image_file)
+                    os.makedirs(os.path.join(SAVE_DIR, category), exist_ok=True)
+                    cv2.imwrite(save_path, image * 255)
+                    count += 1
+    
+    print(f"  Successfully enhanced and saved {count} images.")
+    return count > 0
+
+
+# =============================================================================
+# 2. DEEP FEATURE EXTRACTION
+# =============================================================================
+def extract_features(images):
+    # Load base models
+    resnet_model = ResNet50(weights='imagenet', include_top=False, input_shape=(IMAGE_SIZE[0], IMAGE_SIZE[1], 3))
+    vgg_model = VGG19(weights='imagenet', include_top=False, input_shape=(IMAGE_SIZE[0], IMAGE_SIZE[1], 3))
+    inception_model = InceptionV3(weights='imagenet', include_top=False, input_shape=(IMAGE_SIZE[0], IMAGE_SIZE[1], 3))
+
+    # Flatten layers
+    resnet_pooling = GlobalAveragePooling2D()(resnet_model.output)
+    vgg_pooling = GlobalAveragePooling2D()(vgg_model.output)
+    inception_pooling = GlobalAveragePooling2D()(inception_model.output)
+
+    # Define extractors
+    resnet_extractor = Model(inputs=resnet_model.input, outputs=resnet_pooling)
+    vgg_extractor = Model(inputs=vgg_model.input, outputs=vgg_pooling)
+    inception_extractor = Model(inputs=inception_model.input, outputs=inception_pooling)
+
+    # Extract
+    print("  -> Extracting ResNet50 features...")
+    resnet_features = resnet_extractor.predict(images, verbose=0)
+    print("  -> Extracting VGG19 features...")
+    vgg_features = vgg_extractor.predict(images, verbose=0)
+    print("  -> Extracting InceptionV3 features...")
+    inception_features = inception_extractor.predict(images, verbose=0)
+
+    # Concatenate all features
+    return np.concatenate([resnet_features, vgg_features, inception_features], axis=-1)
+
+
+# =============================================================================
+# 3. GENETIC ALGORITHM OPTIMIZATION
+# =============================================================================
+def genetic_algorithm(X, y):
+    def initialize_population():
+        return [np.random.randint(2, size=X.shape[1]) for _ in range(POPULATION_SIZE)]
+
+    def fitness_function(individual):
+        if np.sum(individual) == 0:
+            return 0.0
+        X_subset = X[:, individual == 1]
+        
+        # Lightweight XGBoost for fast GA evaluation
+        xgb_eval = XGBClassifier(n_estimators=15, max_depth=3, learning_rate=0.1, 
+                                 eval_metric='logloss', random_state=42, n_jobs=-1)
+        xgb_eval.fit(X_subset, y)
+        y_pred = xgb_eval.predict(X_subset)
+        return accuracy_score(y, y_pred)
+
+    def selection(population, fitnesses):
+        new_population = []
+        fitnesses = np.array(fitnesses)
+        for _ in range(POPULATION_SIZE):
+            parent1_idx = np.random.choice(np.flatnonzero(fitnesses == fitnesses.max()))
+            parent2_idx = np.random.choice(np.flatnonzero(fitnesses == fitnesses.max()))
+            new_population.append(population[parent1_idx])
+            new_population.append(population[parent2_idx])
+        return new_population
+
+    def crossover(population):
+        new_population = []
+        for i in range(0, POPULATION_SIZE, 2):
+            parent1, parent2 = population[i], population[i + 1]
+            crossover_point = random.randint(1, len(parent1) - 2)
+            child1 = np.concatenate([parent1[:crossover_point], parent2[crossover_point:]])
+            child2 = np.concatenate([parent2[:crossover_point], parent1[crossover_point:]])
+            new_population.extend([child1, child2])
+        return new_population
+
+    def mutation(population):
+        new_population = []
+        for individual in population:
+            mutated = individual.copy()
+            mutation_mask = np.random.random(len(mutated)) < MUTATION_RATE
+            mutated[mutation_mask] = 1 - mutated[mutation_mask]
+            new_population.append(mutated)
+        return new_population
+
+    population = initialize_population()
+    fitnesses = [fitness_function(ind) for ind in population]
+
+    for iteration in range(MAX_ITERATIONS):
+        population = selection(population, fitnesses)
+        population = crossover(population)
+        population = mutation(population)
+        fitnesses = [fitness_function(ind) for ind in population]
+        
+        if (iteration + 1) % 5 == 0:
+            print(f"  GA Iteration {iteration + 1}/{MAX_ITERATIONS} - Best Fitness: {max(fitnesses):.4f}")
+
+    best_individual_idx = np.argmax(fitnesses)
+    return population[best_individual_idx]
+
+
+# =============================================================================
+# MAIN EXECUTION PIPELINE
+# =============================================================================
+def main():
+    print("\n=========================================================")
+    print("  Parkinson's Pipeline: Deep Extraction + GA + XGBoost")
+    print("=========================================================")
+
+    print("\n[Step 1] Image Enhancement & Preprocessing...")
+    success = preprocess_images()
+    if not success:
+        return
+
+    print("\n[Step 2] Loading Images into Memory...")
+    X, y = [], []
+    for category in ['SpiralControl', 'SpiralPatients']:
+        category_dir = os.path.join(SAVE_DIR, category)
+        if os.path.isdir(category_dir):
+            for image_file in os.listdir(category_dir):
+                image_path = os.path.join(category_dir, image_file)
+                image = cv2.imread(image_path)
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                image = image / 255.0
+                X.append(image)
+                y.append(0 if category == 'SpiralControl' else 1)
+
+    X = np.array(X)
+    y = np.array(y)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    print("\n[Step 3] Extracting Deep Features...")
+    print("Processing Training Data:")
+    X_train_features = extract_features(X_train)
+    print("Processing Testing Data:")
+    X_test_features = extract_features(X_test)
+    print(f"  Total features extracted per image: {X_train_features.shape[1]}")
+
+    print("\n[Step 4] Running Genetic Algorithm Feature Optimization...")
+    best_individual = genetic_algorithm(X_train_features, y_train)
+    
+    X_train_optimized = X_train_features[:, best_individual == 1]
+    X_test_optimized = X_test_features[:, best_individual == 1]
+    print(f"  Optimization kept {np.sum(best_individual)} of the most important features.")
+
+    print("\n[Step 5] Training Final XGBoost Classifier...")
+    xgb_final = XGBClassifier(
+        n_estimators=300, 
+        learning_rate=0.05, 
+        max_depth=6,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42, 
+        eval_metric='logloss',
+        n_jobs=-1
+    )
+    xgb_final.fit(X_train_optimized, y_train)
+
+    # Evaluation
+    y_pred = xgb_final.predict(X_test_optimized)
+    y_prob = xgb_final.predict_proba(X_test_optimized)[:, 1]
+
+    accuracy = accuracy_score(y_test, y_pred)
+    recall = recall_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, zero_division=0)
+    auc = roc_auc_score(y_test, y_prob)
+
+    print("\n=========================================================")
+    print("  FINAL EVALUATION RESULTS (XGBoost)")
+    print("=========================================================")
+    print(f"  Accuracy  : {accuracy:.4f}  ({accuracy*100:.1f}%)")
+    print(f"  Precision : {precision:.4f}")
+    print(f"  Recall    : {recall:.4f}")
+    print(f"  AUC       : {auc:.4f}")
+    print("=========================================================\n")
+
+    # =========================================================================
+    # THE SAVING LOGIC IS NOW SAFELY INSIDE THE MAIN FUNCTION
+    # =========================================================================
+    os.makedirs('saved_models', exist_ok=True)
+    
+    # Save the trained XGBoost classifier
+    joblib.dump(xgb_final, 'saved_models/xgboost_parkinsons.pkl')
+    # Save the exact feature selection mask chosen by the Genetic Algorithm
+    joblib.dump(best_individual, 'saved_models/ga_feature_mask.pkl')
+    
+    print("  [+] Model and Feature Mask successfully saved to the 'saved_models' folder!")
+    
+    # =========================================================================
+    # 6. TEST YOUR OWN IMAGE (Terminal Loop)
+    # =========================================================================
+    print("\n=========================================================")
+    print("  TEST YOUR OWN IMAGE")
+    print("  Enter path to your spiral or wave drawing.")
+    print("  Press ENTER to skip.")
+    print("=========================================================")
+
+    # Load feature extractors for single-image testing
+    m1 = ResNet50(weights='imagenet', include_top=False, input_shape=(256, 256, 3))
+    m2 = VGG19(weights='imagenet', include_top=False, input_shape=(256, 256, 3))
+    m3 = InceptionV3(weights='imagenet', include_top=False, input_shape=(256, 256, 3))
+    e1 = Model(inputs=m1.input, outputs=GlobalAveragePooling2D()(m1.output))
+    e2 = Model(inputs=m2.input, outputs=GlobalAveragePooling2D()(m2.output))
+    e3 = Model(inputs=m3.input, outputs=GlobalAveragePooling2D()(m3.output))
+
+    while True:
+        path = input("  Image path (or ENTER to quit): ").strip().strip('"').strip("'")
+        if not path:
+            break
+        if not os.path.exists(path):
+            print("  [!] File not found: " + path)
+            continue
+
+        img = cv2.imread(path)
+        if img is None:
+            print("  [!] Unable to read image file.")
+            continue
+            
+        img = cv2.resize(img, IMAGE_SIZE)
+        img = cv2.blur(img, (5, 5)) 
+        laplacian = cv2.Laplacian(img, cv2.CV_64F)
+        img = cv2.convertScaleAbs(img - 0.5 * laplacian) 
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = img / 255.0
+        img_tensor = np.expand_dims(img, axis=0)
+
+        f1 = e1.predict(img_tensor, verbose=0)
+        f2 = e2.predict(img_tensor, verbose=0)
+        f3 = e3.predict(img_tensor, verbose=0)
+        
+        all_features = np.concatenate([f1, f2, f3], axis=-1)
+        optimized_features = all_features[:, best_individual == 1]
+        
+        prediction = xgb_final.predict(optimized_features)[0]
+        confidence = xgb_final.predict_proba(optimized_features)[0][prediction] * 100
+        label = "Parkinson's Detected" if prediction == 1 else "Healthy (Control)"
+
+        print("\n  =========================================")
+        print("    PREDICTION RESULT")
+        print("  =========================================")
+        print(f"    File       : {os.path.basename(path)}")
+        print(f"    Diagnosis  : {label}")
+        print(f"    Confidence : {confidence:.2f}%")
+        print("  =========================================\n")
+
+    print("\n  Done!")
+
+if __name__ == "__main__":
+    main()

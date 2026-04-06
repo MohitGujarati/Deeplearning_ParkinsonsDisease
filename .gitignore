@@ -1,0 +1,5 @@
+dataset/
+preprocessed_images/
+saved_models/
+__pycache__/
+*.pyc
