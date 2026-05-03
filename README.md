@@ -29,12 +29,20 @@ cd Deeplearning_ParkinsonsDisease
 ```
 
 ### Step 2: Download and Setup the Dataset
-1. **Download the Dataset:** Please download the project dataset zip file from this link: `[Insert Google Drive/OneDrive Link Here]`
-2. **Extract the Dataset:** Once downloaded, extract the contents directly into the root folder of the cloned repository.
-3. **Verify the Structure:** Ensure there is a `dataset` folder in the root directory containing the following sub-directories:
+1. **Download the Dataset:** Please download the project dataset zip file from this link:
+   
+   Datasets Links-
+   
+            •	Internal dataset-  https://www.kaggle.com/datasets/krishbharatkhatri/newhandpd-dataset/data
+            
+            •	External dataset - https://www.kaggle.com/datasets/anonymous6623/parkinsons-dataset-5
+
+
+3. **Extract the Dataset:** Once downloaded, extract the contents directly into the root folder of the cloned repository.
+4. **Verify the Structure:** Ensure there is a `dataset` folder in the root directory containing the following sub-directories:
    - `HealthyCircle`, `HealthyMeander`, `HealthySignal`, `HealthySpiral`
    - `PatientCircle`, `PatientMeander`, `PatientSignal`, `PatientSpiral`
-4. *(Optional)* If testing against the external dataset, ensure `external_datset.zip` is placed in the root folder.
+5. *(Optional)* If testing against the external dataset, ensure `external_datset.zip` is placed in the root folder.
 
 ### Step 3: Install Dependencies
 Ensure you have Python 3.8+ installed. You can install all necessary packages using pip:
