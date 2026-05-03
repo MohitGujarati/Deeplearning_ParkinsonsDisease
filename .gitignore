@@ -1,0 +1,31 @@
+# Dataset files and directories (Too large for GitHub)
+dataset/
+external_datset.zip
+external_test_extracted/
+extracted_external_dataset/
+
+# Preprocessed image outputs
+preprocessed_images/
+preprocessed_test_images/
+
+# Trained models and plot outputs
+saved_models/
+plots/
+
+# Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.env
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE files
+.vscode/
+.idea/
