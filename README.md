@@ -16,32 +16,34 @@ The core of this application revolves around two main scripts:
 
 ---
 
-## 🛠 Prerequisites and Installation
+## 📝 Evaluator / Professor Instructions
 
-### 1. Dependencies
+> [!WARNING]
+> Dataset images and trained models are **not** included in this GitHub repository due to file size limits. Please follow the steps below to successfully set up and run the project locally.
+
+### Step 1: Clone the Repository
+Clone this repository to your local machine:
+```bash
+git clone https://github.com/MohitGujarati/Deeplearning_ParkinsonsDisease.git
+cd Deeplearning_ParkinsonsDisease
+```
+
+### Step 2: Download and Setup the Dataset
+1. **Download the Dataset:** Please download the project dataset zip file from this link: `[Insert Google Drive/OneDrive Link Here]`
+2. **Extract the Dataset:** Once downloaded, extract the contents directly into the root folder of the cloned repository.
+3. **Verify the Structure:** Ensure there is a `dataset` folder in the root directory containing the following sub-directories:
+   - `HealthyCircle`, `HealthyMeander`, `HealthySignal`, `HealthySpiral`
+   - `PatientCircle`, `PatientMeander`, `PatientSignal`, `PatientSpiral`
+4. *(Optional)* If testing against the external dataset, ensure `external_datset.zip` is placed in the root folder.
+
+### Step 3: Install Dependencies
 Ensure you have Python 3.8+ installed. You can install all necessary packages using pip:
-
 ```bash
 pip install tensorflow opencv-python numpy scikit-learn xgboost shap matplotlib joblib
 ```
 
-### 2. Hardware Recommendations
-Because this project utilizes three deep Convolutional Neural Networks (CNNs) for feature extraction, **a machine with a dedicated GPU is highly recommended** to speed up processing time. However, it will still function on a standard CPU.
-
----
-
-## 📂 Project Structure & Setup
-
-> [!WARNING]
-> Dataset images and trained models are **not** included in this repository due to GitHub file size limits. You must download the dataset externally and set up the directories locally.
-
-### Dataset Download Instructions
-1. **Download the Dataset:** Please download the dataset zip file from the provided link: `[Insert Google Drive/OneDrive Link Here]`
-2. **Extract the Dataset:** Once downloaded, extract the dataset directly into the root folder of this project.
-3. **Verify the Structure:** Ensure there is a `dataset` folder in the root directory with the following sub-directories:
-   - `HealthyCircle`, `HealthyMeander`, `HealthySignal`, `HealthySpiral`
-   - `PatientCircle`, `PatientMeander`, `PatientSignal`, `PatientSpiral`
-4. *(Optional)* If testing against the external dataset, ensure `external_datset.zip` is placed in the root folder.
+> [!NOTE]
+> **Hardware Recommendation:** Because this project utilizes three deep Convolutional Neural Networks (CNNs) for feature extraction, a machine with a dedicated GPU is highly recommended to speed up processing time. However, it will still function on a standard CPU.
 
 ---
 
